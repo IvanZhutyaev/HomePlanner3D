@@ -1,0 +1,382 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>HomePlanner3D - Конструктор планировки квартир</title>
+
+    <!-- Загружаем Unity WebGL loader -->
+    <script src="/Build3D/Build/Build3D.loader.js"></script>
+
+    <style>
+      /* Стили для Unity контейнера - теперь только для правой панели */
+      #unityContainer {
+        position: relative;
+        width: 100%;
+        height: 100%;
+        z-index: 1;
+        opacity: 0;
+        transition: opacity 0.5s ease;
+        display: none;
+      }
+
+      #unityContainer.loaded {
+        opacity: 1;
+        display: block;
+      }
+
+      #unityCanvas {
+        width: 100%;
+        height: 100%;
+        display: block;
+      }
+
+      .unity-overlay {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.8);
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        color: white;
+        font-family: Arial, sans-serif;
+        z-index: 2;
+      }
+
+      .unity-loading-bar {
+        width: 80%;
+        max-width: 300px;
+        height: 20px;
+        background: #333;
+        border-radius: 10px;
+        margin: 20px 0;
+        overflow: hidden;
+      }
+
+      .unity-loading-progress {
+        height: 100%;
+        background: #4CAF50;
+        width: 0%;
+        transition: width 0.3s ease;
+      }
+
+      .unity-controls {
+        position: absolute;
+        bottom: 10px;
+        right: 10px;
+        z-index: 3;
+        display: flex;
+        gap: 8px;
+      }
+
+      .unity-btn {
+        padding: 6px 12px;
+        background: #2f5dff;
+        color: white;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 12px;
+        opacity: 0.9;
+      }
+
+      .unity-btn:hover {
+        background: #1e4bd6;
+        opacity: 1;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+
+    <!-- Unity Container будет вставлен в правую панель через Vue -->
+    <div id="unityContainer">
+      <canvas id="unityCanvas" tabindex="0"></canvas>
+
+      <!-- Unity Loading Overlay -->
+      <div id="unityOverlay" class="unity-overlay" style="display: none;">
+        <h2>Загрузка 3D сцены...</h2>
+        <div class="unity-loading-bar">
+          <div id="unityProgress" class="unity-loading-progress"></div>
+        </div>
+        <p id="unityProgressText">0%</p>
+        <small>Пожалуйста, подождите. Загрузка может занять несколько секунд.</small>
+      </div>
+
+      <!-- Unity Controls -->
+      <div id="unityControls" class="unity-controls" style="display: none;">
+        <button class="unity-btn" onclick="hideUnity()">✕ Скрыть 3D</button>
+        <button class="unity-btn" onclick="reloadUnityScene()">🔄 Обновить</button>
+      </div>
+    </div>
+
+    <script type="module" src="/src/main.js"></script>
+
+    <script>
+      // Глобальные переменные для Unity
+      let unityInstance = null;
+      let isUnityLoaded = false;
+      let isUnityVisible = false;
+
+      // Функция проверки доступности Unity API
+      function checkUnityAPI() {
+        console.log('Проверка Unity API...');
+        console.log('createUnityInstance:', typeof createUnityInstance);
+        console.log('UnityLoader:', typeof UnityLoader);
+
+        if (typeof createUnityInstance !== 'undefined') {
+          return 'createUnityInstance';
+        } else if (typeof UnityLoader !== 'undefined') {
+          return 'UnityLoader';
+        } else {
+          return null;
+        }
+      }
+
+      // Функция инициализации Unity
+      function initUnity() {
+        console.log('Инициализация Unity...');
+
+        // Показываем overlay загрузки
+        const overlay = document.getElementById('unityOverlay');
+        const progressBar = document.getElementById('unityProgress');
+        const progressText = document.getElementById('unityProgressText');
+
+        overlay.style.display = 'flex';
+
+        // Проверяем доступный API
+        const apiType = checkUnityAPI();
+        console.log('Доступный API:', apiType);
+
+        if (apiType === 'createUnityInstance') {
+          // Современный API (Unity 2020+)
+          console.log('Используем createUnityInstance...');
+
+          // Используем canvas элемент вместо div
+          const canvas = document.getElementById("unityCanvas");
+
+          createUnityInstance(canvas, {
+            dataUrl: "/Build3D/Build/Build3D.data",
+            frameworkUrl: "/Build3D/Build/Build3D.framework.js",
+            codeUrl: "/Build3D/Build/Build3D.wasm",
+            streamingAssetsUrl: "StreamingAssets",
+            companyName: "HomePlanner3D",
+            productName: "HomePlanner3D",
+            productVersion: "1.0",
+            webglContextAttributes: {
+              preserveDrawingBuffer: false
+            }
+          },
+          (progress) => {
+            // Прогресс загрузки
+            const percentage = Math.round(progress * 100);
+            progressBar.style.width = percentage + '%';
+            progressText.textContent = percentage + '%';
+            console.log('Прогресс загрузки Unity:', percentage + '%');
+
+            if (percentage === 100) {
+              setTimeout(() => {
+                // Даем немного времени на завершение инициализации
+              }, 1000);
+            }
+          })
+          .then((instance) => {
+            unityInstance = instance;
+            console.log('Unity instance создана:', unityInstance);
+            onUnityLoaded();
+          })
+          .catch((error) => {
+            console.error('Ошибка инициализации Unity:', error);
+            showUnityError('Не удалось загрузить Unity: ' + error);
+          });
+
+        } else if (apiType === 'UnityLoader') {
+          // Старый API (Unity до 2020)
+          console.log('Используем UnityLoader...');
+
+          try {
+            unityInstance = UnityLoader.instantiate(
+              "unityContainer",
+              "/Build3D/Build/Build3D.json",
+              {
+                onProgress: (unityInstance, progress) => {
+                  const percentage = Math.round(progress * 100);
+                  progressBar.style.width = percentage + '%';
+                  progressText.textContent = percentage + '%';
+                  console.log('Прогресс загрузки Unity:', percentage + '%');
+
+                  if (percentage === 100) {
+                    setTimeout(() => {
+                      onUnityLoaded();
+                    }, 500);
+                  }
+                }
+              }
+            );
+            console.log('Unity WebGL начал загрузку через UnityLoader...');
+          } catch (error) {
+            console.error('Ошибка инициализации UnityLoader:', error);
+            showUnityError('Ошибка UnityLoader: ' + error.message);
+          }
+        } else {
+          showUnityError('Unity WebGL API не найден. Проверьте загрузку Build3D.loader.js');
+        }
+      }
+
+      function showUnityError(message) {
+        console.error('Unity Error:', message);
+        const overlay = document.getElementById('unityOverlay');
+        overlay.innerHTML = `
+          <h2>Ошибка загрузки 3D</h2>
+          <p>${message}</p>
+          <div style="margin: 10px 0; font-size: 14px;">
+            Проблема с WebGL контекстом. Попробуйте другой браузер или обновите текущий.
+          </div>
+          <button class="unity-btn" onclick="location.reload()">Обновить страницу</button>
+          <button class="unity-btn" onclick="initUnity()" style="background: #ff6b6b;">Повторить загрузку</button>
+        `;
+      }
+
+      // Функция вызывается когда Unity загружен
+      function onUnityLoaded() {
+        isUnityLoaded = true;
+
+        // Скрываем overlay
+        document.getElementById('unityOverlay').style.display = 'none';
+
+        // Показываем контролы
+        document.getElementById('unityControls').style.display = 'flex';
+
+        // Автоматически показываем Unity после загрузки
+        showUnity();
+
+        console.log('Unity WebGL успешно загружен!');
+
+        // Уведомляем Vue приложение о готовности Unity
+        if (window.vueApp && window.vueApp.unityReady) {
+          window.vueApp.unityReady();
+        }
+      }
+
+      // Функция для скрытия Unity
+      function hideUnity() {
+        const container = document.getElementById('unityContainer');
+        container.classList.remove('loaded');
+        isUnityVisible = false;
+
+        // Уведомляем Vue приложение
+        if (window.vueApp && window.vueApp.unityHidden) {
+          window.vueApp.unityHidden();
+        }
+      }
+
+      // Функция для показа Unity в правой панели
+      function showUnity() {
+        const container = document.getElementById('unityContainer');
+        container.classList.add('loaded');
+        isUnityVisible = true;
+
+        // Перемещаем контейнер в правую панель, если он еще не там
+        moveUnityToRightPanel();
+      }
+
+      // Функция для перемещения Unity контейнера в правую панель
+      function moveUnityToRightPanel() {
+        const unityContainer = document.getElementById('unityContainer');
+        const rightPanel = document.querySelector('.constructor__panel--3d .unity__host');
+
+        if (rightPanel && !rightPanel.contains(unityContainer)) {
+          // Перемещаем контейнер в правую панель
+          rightPanel.appendChild(unityContainer);
+          console.log('Unity контейнер перемещен в правую панель');
+        }
+      }
+
+      // Функция для перезагрузки сцены
+      function reloadUnityScene() {
+        if (unityInstance && isUnityLoaded) {
+          // Используем LoadLayoutData вместо ReloadScene
+          const unityData = window.prepareUnityData ? window.prepareUnityData() : null;
+          if (unityData) {
+            unityInstance.SendMessage('SceneController', 'LoadLayoutData', JSON.stringify(unityData));
+            console.log('Сцена перезагружена с текущими данными');
+          } else {
+            unityInstance.SendMessage('SceneController', 'ReloadScene', '');
+            console.log('Команда перезагрузки сцены отправлена в Unity');
+          }
+        }
+      }
+
+      // Глобальная функция для отправки данных в Unity из Vue
+      window.sendToUnity = function(jsonData) {
+        if (unityInstance && isUnityLoaded) {
+          try {
+            unityInstance.SendMessage('SceneController', 'LoadLayoutData', jsonData);
+            console.log('Данные отправлены в Unity:', jsonData);
+            return true;
+          } catch (error) {
+            console.error('Ошибка отправки данных в Unity:', error);
+            return false;
+          }
+        } else {
+          console.warn('Unity не загружен. Данные не отправлены.');
+          return false;
+        }
+      };
+
+      // Глобальная функция для проверки статуса Unity
+      window.isUnityReady = function() {
+        return isUnityLoaded && unityInstance !== null;
+      };
+
+      // Глобальная функция для инициализации Unity из Vue
+      window.initializeUnity = function() {
+        if (!isUnityLoaded && !unityInstance) {
+          initUnity();
+          return true;
+        } else if (isUnityLoaded) {
+          showUnity();
+          return true;
+        }
+        return false;
+      };
+
+      // Функция для получения экземпляра Unity (для Vue)
+      window.getUnityInstance = function() {
+        return unityInstance;
+      };
+
+      // Автоматически перемещаем Unity в правую панель при загрузке
+      document.addEventListener('DOMContentLoaded', function() {
+        console.log('DOM загружен, проверяем Unity API...');
+        const apiType = checkUnityAPI();
+        console.log('Доступный Unity API:', apiType);
+
+        // Пытаемся переместить Unity в правую панель
+        setTimeout(moveUnityToRightPanel, 100);
+      });
+
+      // Также перемещаем при изменении DOM (на случай динамической загрузки)
+      const observer = new MutationObserver(function(mutations) {
+        mutations.forEach(function(mutation) {
+          if (mutation.type === 'childList') {
+            const rightPanel = document.querySelector('.constructor__panel--3d .unity__host');
+            if (rightPanel) {
+              moveUnityToRightPanel();
+              observer.disconnect();
+            }
+          }
+        });
+      });
+
+      observer.observe(document.body, { childList: true, subtree: true });
+
+      console.log('Unity WebGL integration script loaded');
+    </script>
+  </body>
+</html>
